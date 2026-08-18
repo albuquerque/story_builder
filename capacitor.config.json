@@ -1,0 +1,6 @@
+{
+  "appId": "com.match3.storybuilder",
+  "appName": "Story Builder",
+  "webDir": "webapp/www",
+  "server": { "androidScheme": "https" }
+}

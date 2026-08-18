@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+
+# Local working state / runtime
+project.json
+npm-debug.log*
+.DS_Store
+*.log
+
+# Game DATA snapshots — never commit game content into this repo
+webapp/base-data.zip
+data/
+**/data-snapshot/
+
+# Generated web-app build outputs
+webapp/src/engine-lib.js
+webapp/www/
+
+# Capacitor Android generated artifacts
+android/.gradle/
+android/build/
+android/app/build/
+android/capacitor-cordova-android-plugins/
+android/local.properties
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+android/.idea/
+*.apk
+*.aab
+
+# IDE
+.idea/
+.vscode/

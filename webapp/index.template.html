@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Story Builder</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- Offline banner + project actions injected by boot.js -->
+  <div id="offlineBar" class="offline-bar" hidden>
+    <span>On-device mode</span>
+    <button class="btn subtle sm" id="obImport">Import project</button>
+    <button class="btn subtle sm" id="obSaveProj">Save project</button>
+    <button class="btn primary sm" id="obExportPack">Export content pack</button>
+    <input type="file" id="obImportInput" accept=".zip" hidden />
+  </div>
+
+  <!-- The rest of the UI is identical to the desktop app (index-body.html) -->
+  <div id="appRoot"></div>
+
+  <!-- Vendor + engine (offline stack) -->
+  <script src="vendor/jszip.min.js"></script>
+  <script src="src/vfs.js"></script>
+  <script src="src/engine-lib.js"></script>
+  <script src="src/engine.js"></script>
+  <script src="src/api-adapter.js"></script>
+  <!-- Boot: seed VFS then inject the app markup + scripts -->
+  <script src="src/boot.js"></script>
+</body>
+</html>

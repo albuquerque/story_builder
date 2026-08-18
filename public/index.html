@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Story Builder</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1>Story Builder</h1>
+    <nav class="tabs">
+      <button class="tab active" data-tab="chapters">Chapters</button>
+      <button class="tab" data-tab="shards">Shards</button>
+      <button class="tab" data-tab="settings">Save &amp; Export</button>
+    </nav>
+    <div class="save-state" id="saveState">Saved</div>
+  </header>
+
+  <main>
+    <!-- CHAPTERS -->
+    <section class="panel active" id="tab-chapters">
+      <div class="panel-head">
+        <h2>Chapters</h2>
+        <button class="btn primary" id="addChapter">+ Add chapter</button>
+      </div>
+      <p class="hint">Each chapter is one story image with a few lines of dialogue, a level, and the rewards for finishing it. Drag the ⠿ handle (or use ▲▼) to reorder. You can add visual <strong>effects</strong> (flash, shake, tint, particles…) to any dialogue screen.</p>
+      <div id="chapterList" class="cards"></div>
+    </section>
+
+    <!-- SHARDS -->
+    <section class="panel" id="tab-shards">
+      <div class="panel-head">
+        <h2>Shards Gallery</h2>
+        <button class="btn primary" id="addShard">+ Add shard item</button>
+      </div>
+      <p class="hint">Collectible items players unlock by collecting shards. Each needs a name, an image, and how many shards are required.</p>
+      <div id="shardList" class="cards"></div>
+    </section>
+
+    <!-- SETTINGS / EXPORT -->
+    <section class="panel" id="tab-settings">
+      <div class="panel-head"><h2>Save &amp; Export</h2></div>
+
+      <div class="card">
+        <label class="field">
+          <span>Story title</span>
+          <input type="text" id="storyTitle" placeholder="Isabella's Journey" />
+        </label>
+        <label class="field">
+          <span>Story description</span>
+          <textarea id="storyDesc" rows="2" placeholder="A short summary of the story."></textarea>
+        </label>
+        <label class="field">
+          <span>World-map screen background (behind all chapters)</span>
+          <div class="board-bg-row">
+            <div class="image-drop" id="mapScreenBgDrop" title="Optional background shown behind the whole world map">
+              <img id="mapScreenBgPreview" alt="" hidden />
+              <div class="image-placeholder">Tap to set</div>
+              <input type="file" id="mapScreenBgInput" accept="image/*" hidden />
+            </div>
+            <button class="btn subtle sm" id="mapScreenBgClear" hidden>Clear</button>
+          </div>
+        </label>
+      </div>
+
+      <div class="card">
+        <h3>Check for problems</h3>
+        <button class="btn" id="btnValidate">Check now</button>
+        <div id="validation" class="validation"></div>
+      </div>
+
+      <div class="card">
+        <h3>Put it in the game</h3>
+        <p class="hint" id="dataPathHint"></p>
+        <div class="row">
+          <button class="btn primary" id="btnSave">Save into the game</button>
+          <a class="btn" id="btnExport" href="/api/export">Download content pack (.zip)</a>
+        </div>
+        <div id="saveResult" class="result"></div>
+      </div>
+
+      <div class="card danger-zone">
+        <h3>Reload from game</h3>
+        <p class="hint">Discard your changes here and reload the story that's currently in the game.</p>
+        <button class="btn subtle" id="btnReseed">Reload from game</button>
+      </div>
+    </section>
+  </main>
+
+  <!-- Preview overlay -->
+  <div id="previewOverlay" class="preview-overlay" hidden>
+    <div class="preview-phone">
+      <div class="preview-stage" id="previewStage">
+        <img class="preview-image" id="previewImage" alt="" />
+        <div class="preview-fx" id="previewFx"></div>
+        <div class="preview-text" id="previewText"></div>
+      </div>
+      <div class="preview-controls">
+        <button class="btn subtle sm" id="previewPrev">◀ Prev</button>
+        <span class="preview-counter" id="previewCounter">1 / 1</span>
+        <button class="btn subtle sm" id="previewNext">Next ▶</button>
+        <button class="btn subtle sm" id="previewReplay">↻ Replay</button>
+        <label class="preview-auto"><input type="checkbox" id="previewAuto" checked /> Auto</label>
+        <button class="btn sm" id="previewClose">Close ✕</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- WorldMap editor overlay -->
+  <div id="mapOverlay" class="map-overlay" hidden>
+    <div class="map-panel">
+      <div class="map-head">
+        <span class="map-title" id="mapTitle">World-map placement</span>
+        <button class="btn sm" id="mapClose">Close ✕</button>
+      </div>
+      <p class="hint">Set the chapter's map background, then drag the level marker to line it up with the artwork.</p>
+      <div class="map-tools">
+        <div class="map-bg-set">
+          <div class="image-drop map-bg-drop" title="Set world-map background">
+            <img class="map-bg-preview" alt="" hidden />
+            <div class="image-placeholder">Map background</div>
+            <input type="file" class="map-bg-input" accept="image/*" hidden />
+          </div>
+          <button class="btn subtle sm" id="mapBgClear" hidden>Clear</button>
+        </div>
+        <label class="field map-color">
+          <span>Fallback color</span>
+          <input type="color" id="mapColor" value="#3D5A80" />
+        </label>
+      </div>
+      <div class="map-stage" id="mapStage">
+        <img class="map-stage-bg" id="mapStageBg" alt="" hidden />
+        <div class="map-stage-fallback" id="mapStageFallback"></div>
+        <div class="map-node" id="mapNode">1</div>
+      </div>
+      <div class="map-coords" id="mapCoords">x: 360, y: 450</div>
+    </div>
+  </div>
+
+  <!-- Templates -->
+  <template id="chapterTemplate">
+    <div class="card chapter-wrap">
+      <div class="card-head chapter-head">
+        <span class="drag-handle ch-drag" title="Drag to reorder chapters">⠿</span>
+        <span class="chapter-num"></span>
+        <input type="text" class="chw-title title-input" placeholder="Chapter title" />
+        <div class="reorder">
+          <button class="icon mapedit" title="Edit world-map placement">🗺</button>
+          <button class="icon up" title="Move chapter up">▲</button>
+          <button class="icon down" title="Move chapter down">▼</button>
+          <button class="icon del danger" title="Delete chapter">✕</button>
+        </div>
+      </div>
+      <input type="text" class="chw-desc" placeholder="Short chapter description (optional)" />
+
+      <div class="chapter-levels"></div>
+      <button class="btn subtle sm add-level">+ Add level to this chapter</button>
+
+      <div class="chapter-completion">
+        <div class="chc-head">🏆 Chapter completion bonus (extra, on finishing all its levels)</div>
+        <div class="grid3">
+          <label class="field"><span>Coins</span><input type="number" class="chc-coins" min="0" step="10" value="0" /></label>
+          <label class="field"><span>Gems</span><input type="number" class="chc-gems" min="0" step="1" value="0" /></label>
+          <label class="field"><span>Booster</span><select class="chc-booster"></select></label>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <template id="levelTemplate">
+    <div class="card level">
+      <div class="card-head">
+        <span class="drag-handle" title="Drag to reorder levels">⠿</span>
+        <span class="level-num"></span>
+        <input type="text" class="ch-title title-input" placeholder="Level title" />
+        <div class="reorder">
+          <button class="icon preview" title="Preview this level's narrative">▶</button>
+          <button class="icon up" title="Move up">▲</button>
+          <button class="icon down" title="Move down">▼</button>
+          <button class="icon dup" title="Duplicate">⧉</button>
+          <button class="icon del danger" title="Delete">✕</button>
+        </div>
+      </div>
+
+      <div class="chapter-body">
+        <div class="image-col">
+          <div class="image-drop">
+            <img class="ch-image-preview" alt="" hidden />
+            <div class="image-placeholder">Tap to add<br>story image</div>
+            <input type="file" class="ch-image-input" accept="image/*" hidden />
+          </div>
+        </div>
+
+        <div class="fields-col">
+          <label class="field">
+            <span>Short description</span>
+            <input type="text" class="ch-desc" placeholder="One sentence about this level." />
+          </label>
+
+          <div class="field">
+            <span>Intro narrative — dialogue lines</span>
+            <div class="dialogue-list"></div>
+            <button class="btn subtle sm add-line">+ Add line</button>
+          </div>
+
+          <div class="grid2">
+            <label class="field">
+              <span>Difficulty</span>
+              <select class="ch-difficulty"></select>
+            </label>
+            <label class="field">
+              <span>Card rarity</span>
+              <select class="ch-rarity"></select>
+            </label>
+          </div>
+
+          <div class="grid2">
+            <label class="field">
+              <span>Board theme</span>
+              <select class="ch-theme"></select>
+            </label>
+            <label class="field">
+              <span>Board background (optional)</span>
+              <div class="board-bg-row">
+                <div class="image-drop board-bg-drop" title="Optional: override the board background for this level">
+                  <img class="ch-bg-preview" alt="" hidden />
+                  <div class="image-placeholder">Tap to set</div>
+                  <input type="file" class="ch-bg-input" accept="image/*" hidden />
+                </div>
+                <button class="btn subtle sm ch-bg-clear" hidden>Use theme default</button>
+              </div>
+            </label>
+          </div>
+
+          <div class="grid3">
+            <label class="field">
+              <span>Coins</span>
+              <input type="number" class="ch-coins" min="0" step="5" value="0" />
+            </label>
+            <label class="field">
+              <span>Gems</span>
+              <input type="number" class="ch-gems" min="0" step="1" value="0" />
+            </label>
+            <label class="field">
+              <span>Booster</span>
+              <select class="ch-booster"></select>
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <template id="dialogueLineTemplate">
+    <div class="dialogue-line">
+      <div class="dl-top">
+        <div class="dl-image">
+          <div class="image-drop dl-image-drop" title="Optional: a different image for this screen">
+            <img class="dl-image-preview" alt="" hidden />
+            <div class="image-placeholder">Screen image<br>(optional)</div>
+            <input type="file" class="dl-image-input" accept="image/*" hidden />
+          </div>
+          <button class="btn subtle sm dl-image-clear" hidden>Use chapter image</button>
+        </div>
+        <textarea class="dl-text" rows="3" placeholder="What is said on this screen..."></textarea>
+      </div>
+      <div class="dl-meta">
+        <label>Seconds <input type="number" class="dl-duration" min="1" max="30" step="0.5" value="4" /></label>
+        <button class="icon del danger dl-remove" title="Remove line">✕</button>
+      </div>
+      <div class="dl-effects">
+        <div class="dl-effects-head">
+          <span>Effects on this screen</span>
+          <select class="dl-add-effect">
+            <option value="">+ Add effect…</option>
+          </select>
+        </div>
+        <div class="effect-list"></div>
+      </div>
+    </div>
+  </template>
+
+  <template id="effectRowTemplate">
+    <div class="effect-row">
+      <div class="effect-row-head">
+        <span class="effect-name"></span>
+        <button class="icon del danger effect-remove" title="Remove effect">✕</button>
+      </div>
+      <div class="effect-fields"></div>
+    </div>
+  </template>
+
+  <template id="shardTemplate">
+    <div class="card shard">
+      <div class="card-head">
+        <span class="drag-handle" title="Drag to reorder">⠿</span>
+        <input type="text" class="sh-name title-input" placeholder="Item name" />
+        <div class="reorder">
+          <button class="icon up" title="Move up">▲</button>
+          <button class="icon down" title="Move down">▼</button>
+          <button class="icon del danger" title="Delete">✕</button>
+        </div>
+      </div>
+      <div class="shard-body">
+        <div class="image-col">
+          <div class="image-drop" data-kind="shard">
+            <img class="sh-image-preview" alt="" hidden />
+            <div class="image-placeholder">Tap to add<br>image</div>
+            <input type="file" class="sh-image-input" accept="image/*" hidden />
+          </div>
+        </div>
+        <div class="fields-col">
+          <div class="grid2">
+            <label class="field"><span>Rarity</span><select class="sh-rarity"></select></label>
+            <label class="field"><span>Category</span><select class="sh-category"></select></label>
+          </div>
+          <label class="field">
+            <span>Shards required to unlock</span>
+            <input type="number" class="sh-required" min="1" max="50" step="1" value="5" />
+          </label>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <script src="preview.js"></script>
+  <script src="mapeditor.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
