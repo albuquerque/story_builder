@@ -122,6 +122,30 @@
       return zip.generateAsync({ type: 'blob' });
     },
 
+    // Lean, re-importable project backup: the editable model + only the images
+    // the author added. Small enough to zip/share on a phone without OOM.
+    async exportLeanProject(model) {
+      const zip = new JSZip();
+      zip.file('story-project.json', JSON.stringify(model || {}, null, 2));
+      const imgs = this.listUserImages();
+      for (const p of imgs) zip.file('user-images/' + p.replace(/^\//, ''), vfs.get(p));
+      zip.file('README.txt', 'Story Builder project backup.\nOpen the app and use "Import project" to load it.\n');
+      return zip.generateAsync({ type: 'blob' });
+    },
+    // Returns the model from a lean project zip and restores its user images.
+    async importLeanProject(blob) {
+      const zip = await JSZip.loadAsync(blob);
+      let modelJson = zip.file('story-project.json');
+      if (!modelJson) return null; // not a lean project
+      const model = JSON.parse(await modelJson.async('string'));
+      for (const f of Object.values(zip.files)) {
+        if (f.dir || !f.name.startsWith('user-images/')) continue;
+        const p = '/' + f.name.slice('user-images/'.length);
+        this.putUserImage(p, await f.async('uint8array'));
+      }
+      return model;
+    },
+
     // Load a project zip (from a previous export) into the VFS.
     async importProjectZip(blob) {
       const zip = await JSZip.loadAsync(blob);
@@ -158,6 +182,20 @@
         (skipped ? `\n(Note: ${skipped} unchanged seed image(s) were omitted to keep this small.\n` +
           `They already exist in the game project. ${images} new/edited image(s) included.)\n` : ''));
       return zip.generateAsync({ type: 'blob' });
+    },
+
+    // ── User-image persistence (small): only the images the author added,
+    // keyed by VFS path. Avoids ever zipping the 60MB+ seed for storage. ──
+    listUserImages() {
+      const out = [];
+      for (const p of userImagePaths) if (vfs.has(p)) out.push(p);
+      return out;
+    },
+    getImageBytes(vfsPath) { return vfs.get(vfsPath); },
+    putUserImage(vfsPath, bytes) {
+      vfs.set(vfsPath, bytes);
+      userImagePaths.add(vfsPath);
+      saveUserImagePaths();
     },
 
     // ── Seed the VFS from a bundled base data zip (first run) ──

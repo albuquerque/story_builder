@@ -24,19 +24,21 @@
   });
 
   async function seedIfNeeded() {
-    // Prefer a persisted VFS snapshot (IndexedDB). Else seed from base-data.zip.
-    const restored = await restoreVfsFromIDB();
-    if (restored) return;
+    // Always seed the base data (JSON/PO + seed images) from the bundled zip —
+    // it's the read-only foundation. Then restore the author's added images
+    // (small) on top from IndexedDB. The editable model itself is persisted
+    // separately as small JSON by the model store (localStorage).
     try {
-      const ok = await window.SBEngine.seedFromBaseZip('base-data.zip');
-      if (ok) { localStorage.setItem(SEED_FLAG, '1'); await saveVfsToIDB(); }
+      await window.SBEngine.seedFromBaseZip('base-data.zip');
+      localStorage.setItem(SEED_FLAG, '1');
     } catch (e) {
       console.warn('Seed failed:', e);
     }
+    await restoreUserImagesFromIDB();
   }
 
-  // ── IndexedDB persistence for the whole VFS (handles large image data) ──────
-  const IDB_NAME = 'sb_vfs', IDB_STORE = 'kv', IDB_KEY = 'project_zip';
+  // ── IndexedDB persistence for USER-ADDED IMAGES only (never the 60MB seed) ──
+  const IDB_NAME = 'sb_imgs', IDB_STORE = 'imgs';
   function idb() {
     return new Promise((resolve, reject) => {
       const r = indexedDB.open(IDB_NAME, 1);
@@ -45,30 +47,45 @@
       r.onerror = () => reject(r.error);
     });
   }
-  async function saveVfsToIDB() {
+  async function saveUserImagesToIDB() {
     try {
-      const blob = await window.SBEngine.exportProjectZip();
+      const paths = window.SBEngine.listUserImages();
       const db = await idb();
       await new Promise((res, rej) => {
         const tx = db.transaction(IDB_STORE, 'readwrite');
-        tx.objectStore(IDB_STORE).put(blob, IDB_KEY);
+        const store = tx.objectStore(IDB_STORE);
+        // Refresh the whole small set (few images).
+        store.clear();
+        for (const p of paths) store.put(window.SBEngine.getImageBytes(p), p);
         tx.oncomplete = res; tx.onerror = () => rej(tx.error);
       });
-    } catch (e) { console.warn('saveVfsToIDB failed', e); }
+    } catch (e) { console.warn('saveUserImagesToIDB failed', e); }
   }
-  async function restoreVfsFromIDB() {
+  async function restoreUserImagesFromIDB() {
     try {
       const db = await idb();
-      const blob = await new Promise((res, rej) => {
+      await new Promise((res, rej) => {
         const tx = db.transaction(IDB_STORE, 'readonly');
-        const g = tx.objectStore(IDB_STORE).get(IDB_KEY);
-        g.onsuccess = () => res(g.result); g.onerror = () => rej(g.error);
+        const store = tx.objectStore(IDB_STORE);
+        const keysReq = store.getAllKeys();
+        keysReq.onsuccess = () => {
+          const keys = keysReq.result || [];
+          const valsReq = store.getAll();
+          valsReq.onsuccess = () => {
+            const vals = valsReq.result || [];
+            keys.forEach((k, i) => {
+              try { window.SBEngine.putUserImage(String(k), vals[i]); } catch (e) {}
+            });
+            res();
+          };
+          valsReq.onerror = () => rej(valsReq.error);
+        };
+        keysReq.onerror = () => rej(keysReq.error);
       });
-      if (blob) { await window.SBEngine.importProjectZip(blob); return true; }
-    } catch (e) { console.warn('restoreVfsFromIDB failed', e); }
-    return false;
+    } catch (e) { console.warn('restoreUserImagesFromIDB failed', e); }
   }
-  window.__SB_saveVfs = saveVfsToIDB;
+  // Kept name for the api-adapter's debounced hook; now saves only user images.
+  window.__SB_saveVfs = saveUserImagesToIDB;
 
   async function injectBody() {
     const res = await fetch('app-body.html');
@@ -92,27 +109,34 @@
     document.getElementById('obImportInput').addEventListener('change', async (e) => {
       const f = e.target.files[0]; if (!f) return;
       try {
-        await window.SBEngine.importProjectZip(f);
-        window.__SB_STORE.clear();
+        const model = await window.SBEngine.importLeanProject(f);
+        if (model) {
+          window.__SB_STORE.set(model);
+          await saveUserImagesToIDB();
+        } else {
+          // Fall back: treat as a full project zip.
+          await window.SBEngine.importProjectZip(f);
+          window.__SB_STORE.clear();
+        }
         location.reload();
       } catch (err) {
-        alert('Could not import that project zip:\n' + (err && err.message ? err.message : err));
+        notify('Could not import that project zip:\n' + (err && err.message ? err.message : err), true);
       }
     });
     document.getElementById('obSaveProj').addEventListener('click', (ev) =>
       runBusy(ev.currentTarget, 'Saving…', async () => {
-        await saveVfsToIDB();
-        const blob = await window.SBEngine.exportProjectZip();
+        await saveUserImagesToIDB();
+        const blob = await window.SBEngine.exportLeanProject(window.__SB_STORE.get());
         await downloadOrShare(blob, 'story-project.zip');
       }));
     document.getElementById('obExportPack').addEventListener('click', (ev) =>
       runBusy(ev.currentTarget, 'Exporting…', async () => {
         const model = window.__SB_STORE.get();
         const v = window.SBEngine.validate(model);
-        if (!v.ok) { alert('Please fix problems first:\n' + v.errors.join('\n')); return; }
+        if (!v.ok) { notify('Please fix problems first:\n' + v.errors.join('\n'), true); return; }
         const blob = await window.SBEngine.exportContentPackZip(model);
-        await saveVfsToIDB();
         await downloadOrShare(blob, 'content-pack.zip');
+        saveUserImagesToIDB(); // persist in the background; don't block sharing
       }));
   }
 
