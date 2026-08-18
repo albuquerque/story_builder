@@ -235,5 +235,33 @@
     await loadScript('preview.js');
     await loadScript('mapeditor.js');
     await loadScript('app.js'); // app.js self-boots via its boot() call
+    // Some Android WebViews (Adreno) fail to paint the first frame, leaving a
+    // white screen until something forces a repaint. Kick the compositor a few
+    // times after load and on the first interaction.
+    startRepaintKicker();
   })();
+
+  // Force the WebView to repaint. Toggling a transform on <html> reliably
+  // invalidates the compositor without changing layout.
+  function forceRepaint() {
+    try {
+      const el = document.documentElement;
+      el.style.transform = 'translateZ(0)';
+      // Read back to flush, then clear on the next frame.
+      void el.offsetHeight;
+      requestAnimationFrame(() => { el.style.transform = ''; });
+    } catch (e) { /* ignore */ }
+  }
+
+  function startRepaintKicker() {
+    // A few kicks over the first ~1.5s covers slow first paints.
+    let n = 0;
+    const t = setInterval(() => { forceRepaint(); if (++n >= 6) clearInterval(t); }, 250);
+    // Also repaint on the first touch/scroll and when returning to the app.
+    const once = () => { forceRepaint(); window.removeEventListener('touchstart', once); window.removeEventListener('scroll', once); };
+    window.addEventListener('touchstart', once, { passive: true });
+    window.addEventListener('scroll', once, { passive: true });
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) forceRepaint(); });
+    window.__SB_forceRepaint = forceRepaint;
+  }
 })();
