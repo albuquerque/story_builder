@@ -104,7 +104,26 @@ async function boot() {
   Preview.init();
   MapEditor.init(() => touch());
   renderAll();
-  $('#dataPathHint').textContent = 'This will write into: ' + options.dataPath;
+  applyOfflineMode();
+  $('#dataPathHint').textContent = options.offline
+    ? 'On-device: use “Download content pack” to export a .zip you copy into the game.'
+    : 'This will write into: ' + options.dataPath;
+}
+
+// On the offline/Android build there is no server-side data folder. Adapt the
+// Save & Export tab: "Download content pack" exports/shares a zip; hide the
+// server-only "Save into the game" button.
+function isOffline() { return !!(options && options.offline) || typeof window.__SB_exportPack === 'function'; }
+function applyOfflineMode() {
+  if (!isOffline()) return;
+  const save = $('#btnSave');
+  if (save) save.style.display = 'none';         // server-only
+  const exp = $('#btnExport');
+  if (exp) {
+    exp.textContent = 'Download content pack (.zip)';
+    exp.removeAttribute('href');                 // stop the WebView navigating to /api/export
+    exp.setAttribute('role', 'button');
+  }
 }
 
 function normalizeModel() {
@@ -614,6 +633,21 @@ function bindGlobalButtons() {
   $('#btnValidate').addEventListener('click', runValidation);
   $('#btnSave').addEventListener('click', saveIntoGame);
   $('#btnReseed').addEventListener('click', reseed);
+
+  // "Download content pack" — on the offline/Android build this must NOT navigate
+  // to /api/export (that blanks the WebView). Route it through the safe in-app
+  // export (share sheet on Android, download in a browser).
+  const exp = $('#btnExport');
+  if (exp) {
+    exp.addEventListener('click', async (e) => {
+      if (typeof window.__SB_exportPack === 'function') {
+        e.preventDefault();
+        await flushSave();
+        window.__SB_exportPack();
+      }
+      // Otherwise (desktop server): let the <a href="/api/export"> download run.
+    });
+  }
 }
 
 function refreshSettings() { runValidation(); }

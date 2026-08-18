@@ -124,21 +124,28 @@
       }
     });
     document.getElementById('obSaveProj').addEventListener('click', (ev) =>
-      runBusy(ev.currentTarget, 'Saving…', async () => {
-        await saveUserImagesToIDB();
-        const blob = await window.SBEngine.exportLeanProject(window.__SB_STORE.get());
-        await downloadOrShare(blob, 'story-project.zip');
-      }));
+      runBusy(ev.currentTarget, 'Saving…', () => exportProject()));
     document.getElementById('obExportPack').addEventListener('click', (ev) =>
-      runBusy(ev.currentTarget, 'Exporting…', async () => {
-        const model = window.__SB_STORE.get();
-        const v = window.SBEngine.validate(model);
-        if (!v.ok) { notify('Please fix problems first:\n' + v.errors.join('\n'), true); return; }
-        const blob = await window.SBEngine.exportContentPackZip(model);
-        await downloadOrShare(blob, 'content-pack.zip');
-        saveUserImagesToIDB(); // persist in the background; don't block sharing
-      }));
+      runBusy(ev.currentTarget, 'Exporting…', () => exportPack()));
   }
+
+  // Reusable export actions (also used by the Save & Export tab buttons).
+  async function exportPack() {
+    const model = window.__SB_STORE.get();
+    const v = window.SBEngine.validate(model);
+    if (!v.ok) { notify('Please fix problems first:\n' + v.errors.join('\n'), true); return; }
+    const blob = await window.SBEngine.exportContentPackZip(model);
+    await downloadOrShare(blob, 'content-pack.zip');
+    saveUserImagesToIDB(); // persist in the background; don't block sharing
+  }
+  async function exportProject() {
+    await saveUserImagesToIDB();
+    const blob = await window.SBEngine.exportLeanProject(window.__SB_STORE.get());
+    await downloadOrShare(blob, 'story-project.zip');
+  }
+  // Exposed so the in-app Save & Export tab can reuse the safe offline export.
+  window.__SB_exportPack = () => runBusy(null, '', exportPack);
+  window.__SB_exportProject = () => runBusy(null, '', exportProject);
 
   // Run an async task with a button busy state; surface any error as an alert
   // (so a failure never leaves the app on a blank screen).
