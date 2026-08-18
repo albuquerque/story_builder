@@ -170,3 +170,18 @@ live inside the Godot game project at `tools/story-builder/` so they can read an
 write the game's `data/` folder two levels up. When used as a standalone repo,
 place it there (or set the data root) before running those data-touching
 commands. The Android app itself is self-contained once `base-data.zip` is built.
+
+## Continuous integration
+
+CI runs on GitHub Actions (`.github/workflows/ci.yml`) for every push/PR and
+does NOT require the game data folder:
+
+- `npm run syntax` — `node --check` on all first-party JS.
+- `npm run sanity` — builds the browser engine bundle, then runs an in-memory
+  round-trip: a synthetic project is generated to a virtual filesystem and read
+  back, asserting chapters/levels/rewards/world-map survive.
+
+Run the whole gate locally with `npm run ci`.
+
+Tagging a release (`git tag vX.Y.Z && git push --tags`) runs the same gate via
+`.github/workflows/release.yml` and creates a GitHub Release.

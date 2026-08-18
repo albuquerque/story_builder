@@ -8,6 +8,9 @@
   "scripts": {
     "start": "node server.js",
     "verify": "node scripts/verify_roundtrip.js",
+    "syntax": "node scripts/check_syntax.js",
+    "sanity": "node build-webapp.js && node scripts/ci_sanity.js",
+    "ci": "npm run syntax && npm run sanity",
     "build:engine": "node build-webapp.js",
     "build:seed": "node build-seed.js",
     "build:www": "node build-webapp.js && node build-seed.js && node build-www.js",
