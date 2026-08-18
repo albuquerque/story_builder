@@ -125,7 +125,7 @@
       await task();
     } catch (err) {
       console.error(err);
-      alert('Something went wrong:\n' + (err && err.message ? err.message : err));
+      notify('Something went wrong:\n' + (err && err.message ? err.message : err), true);
     } finally {
       if (btn) { btn.disabled = false; btn.textContent = orig; }
     }
@@ -143,7 +143,7 @@
         return;
       }
     } catch (e) {
-      alert('Could not save the file: ' + (e && e.message ? e.message : e));
+      notify('Could not save the file: ' + (e && e.message ? e.message : e), true);
       return; // never fall through to a WebView navigation on native
     }
     // Real browser (desktop) fallback: trigger a normal download.
@@ -154,15 +154,50 @@
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 8000);
     } catch (e) {
-      alert('Download failed: ' + (e && e.message ? e.message : e));
+      notify('Download failed: ' + (e && e.message ? e.message : e), true);
     }
+  }
+
+  // Show a message on screen (WebView-safe; alert() can be a no-op in some
+  // WebViews). Falls back to alert() too.
+  function notify(msg, isError) {
+    try {
+      let el = document.getElementById('sbToast');
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'sbToast';
+        el.style.cssText = 'position:fixed;left:12px;right:12px;bottom:16px;z-index:9999;' +
+          'padding:12px 14px;border-radius:10px;font-size:14px;line-height:1.4;' +
+          'box-shadow:0 4px 16px rgba(0,0,0,.5);white-space:pre-wrap;';
+        document.body.appendChild(el);
+      }
+      el.style.background = isError ? '#4a2130' : '#223a29';
+      el.style.color = isError ? '#ffbcbc' : '#bfe9c9';
+      el.textContent = msg;
+      el.style.display = 'block';
+      clearTimeout(el._t);
+      el._t = setTimeout(() => { el.style.display = 'none'; }, isError ? 12000 : 6000);
+    } catch (e) { /* ignore */ }
+    try { if (isError) alert(msg); } catch (e) { /* ignore */ }
+  }
+  window.__SB_notify = notify;
+
+  // Works even without the plugin's JS package: Capacitor.registerPlugin()
+  // creates a proxy backed by the installed native plugin (via PluginHeaders).
+  function getPlugin(name) {
+    const cap = window.Capacitor;
+    if (!cap) return null;
+    if (cap.Plugins && cap.Plugins[name]) return cap.Plugins[name];
+    if (typeof cap.registerPlugin === 'function') {
+      try { return cap.registerPlugin(name); } catch (e) { /* ignore */ }
+    }
+    return null;
   }
 
   // Write the blob to the app's cache dir and open the Android share sheet.
   async function saveAndShareNative(blob, filename) {
-    const cap = window.Capacitor;
-    const Filesystem = cap.Plugins && cap.Plugins.Filesystem;
-    const Share = cap.Plugins && cap.Plugins.Share;
+    const Filesystem = getPlugin('Filesystem');
+    const Share = getPlugin('Share');
     if (!Filesystem) throw new Error('Filesystem plugin unavailable');
 
     const base64 = await blobToBase64(blob);
@@ -172,13 +207,14 @@
     if (Share && fileUri) {
       try {
         await Share.share({ title: filename, text: filename, url: fileUri });
+        notify('Shared ' + filename);
         return;
       } catch (e) {
         // User dismissed the sheet, or share not possible — that's fine.
         if (String(e && e.message || e).toLowerCase().includes('cancel')) return;
       }
     }
-    alert('Saved to app storage:\n' + (fileUri || filename));
+    notify('Saved to app storage:\n' + (fileUri || filename));
   }
 
   // Memory-safe base64 (chunked) — avoids call-stack limits on large blobs.

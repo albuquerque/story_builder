@@ -46,6 +46,15 @@ for (const f of ['vfs.js', 'engine-lib.js', 'engine.js', 'api-adapter.js', 'boot
   cp(path.join(WEBAPP, 'src', f), path.join(WWW, 'src', f));
 }
 cp(path.join(WEBAPP, 'vendor', 'jszip.min.js'), path.join(WWW, 'vendor', 'jszip.min.js'));
+// Capacitor core (defines registerPlugin; augments the native-injected bridge).
+const capCore = path.join(WEBAPP, 'vendor', 'capacitor', 'capacitor.js');
+if (fs.existsSync(capCore)) {
+  cp(capCore, path.join(WWW, 'vendor', 'capacitor', 'capacitor.js'));
+} else {
+  // Fall back to the installed package if the vendored copy is missing.
+  const pkg = path.join(SB, 'node_modules', '@capacitor', 'core', 'dist', 'capacitor.js');
+  if (fs.existsSync(pkg)) cp(pkg, path.join(WWW, 'vendor', 'capacitor', 'capacitor.js'));
+}
 
 // 5. Seed data.
 if (fs.existsSync(path.join(WEBAPP, 'base-data.zip'))) {
