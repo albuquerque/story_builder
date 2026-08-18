@@ -10,6 +10,19 @@
 
   const SEED_FLAG = 'sb_seeded_v2';
 
+  // Surface any unhandled error/rejection instead of leaving a blank screen.
+  window.addEventListener('error', (e) => {
+    try { console.error('window error', e.error || e.message); } catch (_) {}
+  });
+  window.addEventListener('unhandledrejection', (e) => {
+    try {
+      console.error('unhandled rejection', e.reason);
+      const msg = (e.reason && e.reason.message) ? e.reason.message : String(e.reason);
+      // Only alert for real failures, not benign share cancellations.
+      if (!/cancel/i.test(msg)) alert('Something went wrong:\n' + msg);
+    } catch (_) {}
+  });
+
   async function seedIfNeeded() {
     // Prefer a persisted VFS snapshot (IndexedDB). Else seed from base-data.zip.
     const restored = await restoreVfsFromIDB();
@@ -78,52 +91,105 @@
       document.getElementById('obImportInput').click());
     document.getElementById('obImportInput').addEventListener('change', async (e) => {
       const f = e.target.files[0]; if (!f) return;
-      await window.SBEngine.importProjectZip(f);
-      // Reset model store to re-read from imported VFS.
-      window.__SB_STORE.clear();
-      location.reload();
+      try {
+        await window.SBEngine.importProjectZip(f);
+        window.__SB_STORE.clear();
+        location.reload();
+      } catch (err) {
+        alert('Could not import that project zip:\n' + (err && err.message ? err.message : err));
+      }
     });
-    document.getElementById('obSaveProj').addEventListener('click', async () => {
-      // Persist the whole VFS (images + data) to on-device storage, then also
-      // let the user save a copy of the project zip.
-      await saveVfsToIDB();
-      const blob = await window.SBEngine.exportProjectZip();
-      downloadOrShare(blob, 'story-project.zip');
-    });
-    document.getElementById('obExportPack').addEventListener('click', async () => {
-      const model = window.__SB_STORE.get();
-      const v = window.SBEngine.validate(model);
-      if (!v.ok) { alert('Please fix problems first:\n' + v.errors.join('\n')); return; }
-      const blob = await window.SBEngine.exportContentPackZip(model);
-      await saveVfsToIDB();
-      downloadOrShare(blob, 'content-pack.zip');
-    });
+    document.getElementById('obSaveProj').addEventListener('click', (ev) =>
+      runBusy(ev.currentTarget, 'Saving…', async () => {
+        await saveVfsToIDB();
+        const blob = await window.SBEngine.exportProjectZip();
+        await downloadOrShare(blob, 'story-project.zip');
+      }));
+    document.getElementById('obExportPack').addEventListener('click', (ev) =>
+      runBusy(ev.currentTarget, 'Exporting…', async () => {
+        const model = window.__SB_STORE.get();
+        const v = window.SBEngine.validate(model);
+        if (!v.ok) { alert('Please fix problems first:\n' + v.errors.join('\n')); return; }
+        const blob = await window.SBEngine.exportContentPackZip(model);
+        await saveVfsToIDB();
+        await downloadOrShare(blob, 'content-pack.zip');
+      }));
+  }
+
+  // Run an async task with a button busy state; surface any error as an alert
+  // (so a failure never leaves the app on a blank screen).
+  async function runBusy(btn, label, task) {
+    const orig = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = label; }
+    try {
+      await task();
+    } catch (err) {
+      console.error(err);
+      alert('Something went wrong:\n' + (err && err.message ? err.message : err));
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = orig; }
+    }
+  }
+
+  function isNative() {
+    const cap = window.Capacitor;
+    return !!(cap && cap.isNativePlatform && cap.isNativePlatform());
   }
 
   async function downloadOrShare(blob, filename) {
-    // Capacitor path (Android): write to app storage + Share sheet.
-    const cap = window.Capacitor;
-    if (cap && cap.isNativePlatform && cap.isNativePlatform() && cap.Plugins && cap.Plugins.Filesystem) {
-      try {
-        const Filesystem = cap.Plugins.Filesystem;
-        const Share = cap.Plugins.Share;
-        const dataUrl = await blobToDataUrl(blob);
-        const base64 = dataUrl.split(',')[1];
-        // Directory.Cache = 'CACHE'
-        const res = await Filesystem.writeFile({ path: filename, data: base64, directory: 'CACHE' });
-        if (Share) await Share.share({ title: filename, url: res.uri });
-        else alert('Saved to: ' + res.uri);
+    try {
+      if (isNative()) {
+        await saveAndShareNative(blob, filename);
         return;
-      } catch (e) { console.warn('native share failed, falling back', e); }
+      }
+    } catch (e) {
+      alert('Could not save the file: ' + (e && e.message ? e.message : e));
+      return; // never fall through to a WebView navigation on native
     }
-    // Browser fallback: trigger a download.
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = filename; a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    // Real browser (desktop) fallback: trigger a normal download.
+    try {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 8000);
+    } catch (e) {
+      alert('Download failed: ' + (e && e.message ? e.message : e));
+    }
   }
-  function blobToDataUrl(blob) {
-    return new Promise((resolve) => { const r = new FileReader(); r.onloadend = () => resolve(r.result); r.readAsDataURL(blob); });
+
+  // Write the blob to the app's cache dir and open the Android share sheet.
+  async function saveAndShareNative(blob, filename) {
+    const cap = window.Capacitor;
+    const Filesystem = cap.Plugins && cap.Plugins.Filesystem;
+    const Share = cap.Plugins && cap.Plugins.Share;
+    if (!Filesystem) throw new Error('Filesystem plugin unavailable');
+
+    const base64 = await blobToBase64(blob);
+    // Directory.Cache = 'CACHE'
+    const res = await Filesystem.writeFile({ path: filename, data: base64, directory: 'CACHE', recursive: true });
+    const fileUri = (res && res.uri) ? res.uri : null;
+    if (Share && fileUri) {
+      try {
+        await Share.share({ title: filename, text: filename, url: fileUri });
+        return;
+      } catch (e) {
+        // User dismissed the sheet, or share not possible — that's fine.
+        if (String(e && e.message || e).toLowerCase().includes('cancel')) return;
+      }
+    }
+    alert('Saved to app storage:\n' + (fileUri || filename));
+  }
+
+  // Memory-safe base64 (chunked) — avoids call-stack limits on large blobs.
+  async function blobToBase64(blob) {
+    const buf = new Uint8Array(await blob.arrayBuffer());
+    let binary = '';
+    const CHUNK = 0x8000;
+    for (let i = 0; i < buf.length; i += CHUNK) {
+      binary += String.fromCharCode.apply(null, buf.subarray(i, i + CHUNK));
+    }
+    return btoa(binary);
   }
 
   (async function main() {

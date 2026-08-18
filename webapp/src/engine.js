@@ -26,6 +26,17 @@
 
   // ── Object-URL cache for image previews ────────────────────────────────────
   const urlCache = new Map();  // vfs path -> objectURL
+  // Image paths added by the author on THIS device (uploads). The lean content
+  // pack includes only these (seed images already exist in the game repo).
+  const userImagePaths = loadUserImagePaths();
+  function loadUserImagePaths() {
+    try { return new Set(JSON.parse(localStorage.getItem('sb_user_images') || '[]')); }
+    catch (e) { return new Set(); }
+  }
+  function saveUserImagePaths() {
+    try { localStorage.setItem('sb_user_images', JSON.stringify(Array.from(userImagePaths))); }
+    catch (e) { /* ignore */ }
+  }
   function imageUrl(vfsPath) {
     if (!vfs.has(vfsPath)) return '';
     if (urlCache.has(vfsPath)) return urlCache.get(vfsPath);
@@ -90,7 +101,10 @@
       const dir = kind === 'shard' ? SHARD_DIR : STORY_DIR;
       const name = uniqueName(dir, safeName(file.name || 'image.png'));
       const buf = new Uint8Array(await file.arrayBuffer());
-      vfs.set(dir + '/' + name, buf);
+      const full = dir + '/' + name;
+      vfs.set(full, buf);
+      userImagePaths.add(full);   // track author-added images for the lean pack
+      saveUserImagePaths();
       return name;
     },
     imageUrlFor(kind, name) {
@@ -122,15 +136,27 @@
     },
 
     // ── Content-pack export (for dropping into the game) ──
-    async exportContentPackZip(model) {
-      // Regenerate to be safe, then bundle /data + a README.
-      this.generate(model);
+    // By default this is LEAN: it includes all JSON/PO plus ONLY images the
+    // author added on this device (not the seed images already in the game
+    // repo). Pass { fullImages: true } to include every image (large).
+    async exportContentPackZip(model, opts) {
+      opts = opts || {};
+      this.generate(model); // regenerate JSON/PO into the VFS
       const zip = new JSZip();
+      let images = 0, skipped = 0;
       for (const key of vfs.keys()) {
         if (!key.startsWith('/data/')) continue;
+        const isImage = /\.(png|jpe?g|webp|svg)$/i.test(key);
+        if (isImage) {
+          // Lean pack: include an image only if the author added it here.
+          if (!opts.fullImages && !userImagePaths.has(key)) { skipped++; continue; }
+          images++;
+        }
         zip.file(key.replace(/^\//, ''), vfs.get(key));
       }
-      zip.file('README.txt', CONTENT_PACK_README);
+      zip.file('README.txt', CONTENT_PACK_README + '\n' +
+        (skipped ? `\n(Note: ${skipped} unchanged seed image(s) were omitted to keep this small.\n` +
+          `They already exist in the game project. ${images} new/edited image(s) included.)\n` : ''));
       return zip.generateAsync({ type: 'blob' });
     },
 
