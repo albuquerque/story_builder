@@ -27,6 +27,11 @@ const Preview = (() => {
       auto: el('previewAuto'),
       close: el('previewClose'),
     };
+    // Hidden audio element for voiceover preview.
+    els.voice = document.createElement('audio');
+    els.voice.id = 'previewVoice';
+    els.voice.preload = 'auto';
+    els.stage.appendChild(els.voice);
     els.prev.addEventListener('click', () => go(idx - 1));
     els.next.addEventListener('click', () => go(idx + 1));
     els.replay.addEventListener('click', () => go(0));
@@ -52,6 +57,11 @@ const Preview = (() => {
     clearTimeout(autoTimer);
     els.overlay.hidden = true;
     els.fx.innerHTML = '';
+    _stopVoice();
+  }
+
+  function _stopVoice() {
+    if (els && els.voice) { try { els.voice.pause(); els.voice.removeAttribute('src'); } catch (e) {} }
   }
 
   function slides() {
@@ -90,8 +100,21 @@ const Preview = (() => {
     // Text
     els.text.textContent = slide.text || '';
 
+    // Voiceover — stop the previous clip, play this slide's (if any).
+    _stopVoice();
+    if (slide.voice) {
+      const vurl = (typeof audioUrl === 'function')
+        ? audioUrl(slide.voice)
+        : `/img/voice/${encodeURIComponent(slide.voice)}?t=${Date.now()}`;
+      if (vurl) { els.voice.src = vurl; els.voice.play().catch(() => {}); }
+    }
+
     // Effects — rebuild the fx layer each slide
     els.fx.innerHTML = '';
+    // Remove any fade_image backdrops from the previous slide and reset image.
+    els.stage.querySelectorAll('.pv-fade-backdrop').forEach((n) => n.remove());
+    els.image.style.transition = '';
+    els.image.style.opacity = name ? '1' : '0';
     els.image.style.animation = '';
     (slide.effects || []).forEach((fx) => applyEffect(fx));
   }
@@ -106,6 +129,7 @@ const Preview = (() => {
       case 'progressive_brightness': return fxBrightness(fx);
       case 'camera_shake': return fxShake(fx);
       case 'particle_burst': return fxParticles(fx);
+      case 'fade_image': return fxFadeImage(fx);
       default: return;
     }
   }
@@ -204,6 +228,22 @@ const Preview = (() => {
   }
 
   // ── helpers ──
+  function fxFadeImage(fx) {
+    const rgb = hexToRgb(fx.color || '#000000');
+    const bgA = fx.background_alpha !== undefined ? clamp01(fx.background_alpha) : 1;
+    const from = fx.from !== undefined ? clamp01(fx.from) : 0;
+    const to = fx.to !== undefined ? clamp01(fx.to) : 1;
+    const delay = typeof fx.delay === 'number' ? fx.delay : 0;
+    // Opaque backdrop BEHIND the image.
+    const back = document.createElement('div');
+    back.className = 'pv-overlay pv-fade-backdrop';
+    back.style.background = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${bgA})`;
+    back.style.zIndex = '0';
+    els.stage.insertBefore(back, els.image);
+    // Fade the image itself.
+    setTimeout(() => animateOpacity(els.image, from, to, dur(fx, 0.8)), delay * 1000);
+  }
+
   function animateOpacity(node, from, to, seconds) {
     node.style.opacity = String(from);
     node.style.transition = `opacity ${Math.max(0.05, seconds)}s linear`;

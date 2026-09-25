@@ -16,6 +16,11 @@
     const url = E.imageUrlFor(kind, name);
     return url || '';
   };
+  // Audio (voiceover) URL resolver — same object-URL mechanism.
+  window.__SB_AUDIO_URL = function (name) {
+    const url = E.imageUrlFor('voice', name);
+    return url || '';
+  };
 
   const origFetch = window.fetch.bind(window);
 
@@ -63,12 +68,12 @@
         return json(Object.assign({ ok: true, imported: false, offline: true, warnings: v.warnings }, summary));
       }
       if (u === '/api/upload' && method === 'POST') {
-        const kind = /kind=shard/.test(q) ? 'shard' : 'story';
+        const kind = /kind=shard/.test(q) ? 'shard' : (/kind=voice/.test(q) ? 'voice' : 'story');
         const file = getUploadFile(init);
         if (!file) return json({ error: 'no file' }, 400);
         const name = await E.saveImage(kind, file);
         scheduleVfsSave();
-        return json({ name, url: window.__SB_IMG_URL(kind, name) });
+        return json({ name, url: E.imageUrlFor(kind, name) });
       }
       if (u === '/api/reimport' && method === 'POST') {
         return json({ ok: false, imported: false, offline: true });

@@ -70,7 +70,7 @@ function main() {
         levels: [
           {
             title: 'Level 1', description: 'l1', image: '',
-            dialogue: [{ text: 'Hello world.', duration: 4 }],
+            dialogue: [{ text: 'Hello world.', duration: 4, voice: 'intro_line.ogg' }],
             difficulty: 'easy', targetScore: null, rarity: 'common',
             rewards: { coins: 50, gems: 0, booster: '', boosterAmount: 1 },
             mapNode: { x: 200, y: 300 },
@@ -139,6 +139,13 @@ function main() {
   ok('round-trip preserves chapter/level shape', shape(model) === shape(model2), `${shape(model)} vs ${shape(model2)}`);
   const titles = (m) => m.chapters.map((c) => c.title).join('|');
   ok('round-trip preserves chapter titles', titles(model) === titles(model2), `${titles(model)} vs ${titles(model2)}`);
+
+  // 10b. Voiceover: state.voice emitted and round-trips back to the basename.
+  const narr = JSON.parse(vfs.get('/data/narrative_stages/isabella_01.json'));
+  const st0 = (narr.states || [])[0] || {};
+  ok('narrative state emits voice path', st0.voice === 'res://data/audio/story_content/intro_line.ogg', String(st0.voice));
+  const rtVoice = model2.chapters[0].levels[0].dialogue[0].voice;
+  ok('round-trip preserves voice basename', rtVoice === 'intro_line.ogg', String(rtVoice));
 
   console.log('');
   if (failures === 0) { console.log('SANITY OK — all checks passed'); process.exit(0); }

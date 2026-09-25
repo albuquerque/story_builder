@@ -48,12 +48,16 @@
   }
   function guessMime(p) {
     const e = p.toLowerCase().split('.').pop();
+    if (e === 'ogg') return 'audio/ogg';
+    if (e === 'mp3') return 'audio/mpeg';
+    if (e === 'wav') return 'audio/wav';
     return e === 'jpg' || e === 'jpeg' ? 'image/jpeg'
       : e === 'webp' ? 'image/webp' : e === 'svg' ? 'image/svg+xml' : 'image/png';
   }
   // Image folders in the VFS
   const STORY_DIR = '/data/images/story_content';
   const SHARD_DIR = '/data/images/shards';
+  const VOICE_DIR = '/data/audio/story_content';
   function storyImagePath(name) { return STORY_DIR + '/' + name; }
   function shardImagePath(name) { return SHARD_DIR + '/' + name; }
 
@@ -95,20 +99,21 @@
       };
     },
 
-    // ── Images ──
+    // ── Images / audio ──
     // Save an uploaded File/Blob into the VFS; returns the stored basename.
     async saveImage(kind, file) {
-      const dir = kind === 'shard' ? SHARD_DIR : STORY_DIR;
-      const name = uniqueName(dir, safeName(file.name || 'image.png'));
+      const dir = kind === 'shard' ? SHARD_DIR : (kind === 'voice' ? VOICE_DIR : STORY_DIR);
+      const name = uniqueName(dir, safeName(file.name || (kind === 'voice' ? 'voice.ogg' : 'image.png'), kind));
       const buf = new Uint8Array(await file.arrayBuffer());
       const full = dir + '/' + name;
       vfs.set(full, buf);
-      userImagePaths.add(full);   // track author-added images for the lean pack
+      userImagePaths.add(full);   // track author-added assets for the lean pack
       saveUserImagePaths();
       return name;
     },
     imageUrlFor(kind, name) {
-      return imageUrl((kind === 'shard' ? SHARD_DIR : STORY_DIR) + '/' + name);
+      const dir = kind === 'shard' ? SHARD_DIR : (kind === 'voice' ? VOICE_DIR : STORY_DIR);
+      return imageUrl(dir + '/' + name);
     },
 
     // ── Project persistence (whole VFS) ──
@@ -171,8 +176,9 @@
       for (const key of vfs.keys()) {
         if (!key.startsWith('/data/')) continue;
         const isImage = /\.(png|jpe?g|webp|svg)$/i.test(key);
-        if (isImage) {
-          // Lean pack: include an image only if the author added it here.
+        const isAudio = /\.(ogg|mp3|wav)$/i.test(key);
+        if (isImage || isAudio) {
+          // Lean pack: include a binary asset only if the author added it here.
           if (!opts.fullImages && !userImagePaths.has(key)) { skipped++; continue; }
           images++;
         }
@@ -210,11 +216,13 @@
   };
 
   // ── helpers ──
-  function safeName(original) {
-    const ext = (original.match(/\.[a-z0-9]+$/i) || ['.png'])[0].toLowerCase();
+  function safeName(original, kind) {
+    const ext = (original.match(/\.[a-z0-9]+$/i) || [kind === 'voice' ? '.ogg' : '.png'])[0].toLowerCase();
     let base = original.replace(/\.[a-z0-9]+$/i, '').toLowerCase().replace(/[^a-z0-9_-]+/g, '_').replace(/^_+|_+$/g, '');
-    if (!base) base = 'image';
-    const okExt = ['.png', '.jpg', '.jpeg', '.webp', '.svg'].includes(ext) ? ext : '.png';
+    if (!base) base = (kind === 'voice') ? 'voice' : 'image';
+    const allowed = (kind === 'voice') ? ['.ogg', '.mp3', '.wav'] : ['.png', '.jpg', '.jpeg', '.webp', '.svg'];
+    const fallback = (kind === 'voice') ? '.ogg' : '.png';
+    const okExt = allowed.includes(ext) ? ext : fallback;
     return base + okExt;
   }
   function uniqueName(dir, name) {

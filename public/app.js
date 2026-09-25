@@ -75,6 +75,18 @@ const EFFECTS = {
       { key: 'duration', label: 'Seconds', type: 'number', min: 0.1, max: 5, step: 0.1 },
     ],
   },
+  fade_image: {
+    label: 'Fade image (opaque backdrop)',
+    defaults: { from: 0.0, to: 1.0, duration: 0.8, color: '#000000', background_alpha: 1.0, delay: 0.0 },
+    fields: [
+      { key: 'from', label: 'Start opacity', type: 'range', min: 0, max: 1, step: 0.05 },
+      { key: 'to', label: 'End opacity', type: 'range', min: 0, max: 1, step: 0.05 },
+      { key: 'duration', label: 'Seconds', type: 'number', min: 0.1, max: 8, step: 0.1 },
+      { key: 'delay', label: 'Delay (s)', type: 'number', min: 0, max: 8, step: 0.1 },
+      { key: 'color', label: 'Backdrop color', type: 'color' },
+      { key: 'background_alpha', label: 'Backdrop opacity', type: 'range', min: 0, max: 1, step: 0.05 },
+    ],
+  },
 };
 
 
@@ -136,6 +148,7 @@ function normalizeModel() {
     ch.levels.forEach((lv) => {
       lv.rewards = lv.rewards || { coins: 0, gems: 0, booster: '', boosterAmount: 1 };
       lv.dialogue = lv.dialogue || [];
+      lv.dialogue.forEach((d) => { if (d.voice === undefined) d.voice = ''; });
     });
   });
 }
@@ -414,6 +427,28 @@ function buildDialogueLine(line) {
   }));
   setupDropZone(imgDrop, 'story', (name) => { line.image = name; showLineImage(name); touch(); });
   clearBtn.addEventListener('click', () => { line.image = ''; showLineImage(''); touch(); });
+
+  // Per-screen voiceover / narration clip (optional).
+  const voiceAdd = $('.dl-voice-add', n);
+  const voiceInput = $('.dl-voice-input', n);
+  const voicePreview = $('.dl-voice-preview', n);
+  const voiceClear = $('.dl-voice-clear', n);
+  const showLineVoice = (name) => {
+    if (name) {
+      voicePreview.src = audioUrl(name);
+      voicePreview.hidden = false; voiceClear.hidden = false;
+      voiceAdd.textContent = '♪ Voice';
+    } else {
+      voicePreview.removeAttribute('src'); voicePreview.hidden = true;
+      voiceClear.hidden = true; voiceAdd.textContent = '＋ Voice';
+    }
+  };
+  showLineVoice(line.voice || '');
+  voiceAdd.addEventListener('click', () => voiceInput.click());
+  voiceInput.addEventListener('change', () => uploadImage('voice', voiceInput.files[0], null, (name) => {
+    line.voice = name; showLineVoice(name); touch();
+  }));
+  voiceClear.addEventListener('click', () => { line.voice = ''; showLineVoice(''); touch(); });
 
   // Populate the "+ Add effect…" dropdown.
   const addSel = $('.dl-add-effect', n);
@@ -706,7 +741,7 @@ async function reseed() {
 // ── Image upload helpers ─────────────────────────────────────────────────────
 async function uploadImage(kind, file, dropEl, onDone) {
   if (!file) return;
-  dropEl.classList.add('uploading');
+  if (dropEl) dropEl.classList.add('uploading');
   try {
     const fd = new FormData();
     fd.append('file', file);
@@ -714,14 +749,17 @@ async function uploadImage(kind, file, dropEl, onDone) {
     const data = await res.json();
     if (data.name) {
       // Update the preview inside THIS drop zone only (works for chapter,
-      // shard, and per-dialogue-line images alike).
-      const preview = dropEl.querySelector('img');
-      if (preview) { preview.src = imgUrl(kind, data.name); preview.hidden = false; }
-      const ph = $('.image-placeholder', dropEl); if (ph) ph.hidden = true;
+      // shard, and per-dialogue-line images alike). Voice uploads have no
+      // drop zone (dropEl is null) and handle their own preview in onDone.
+      if (dropEl) {
+        const preview = dropEl.querySelector('img');
+        if (preview) { preview.src = imgUrl(kind, data.name); preview.hidden = false; }
+        const ph = $('.image-placeholder', dropEl); if (ph) ph.hidden = true;
+      }
       onDone(data.name);
     }
   } finally {
-    dropEl.classList.remove('uploading');
+    if (dropEl) dropEl.classList.remove('uploading');
   }
 }
 
@@ -800,6 +838,11 @@ async function fetchJson(url, opts) {
 function imgUrl(kind, name) {
   if (typeof window.__SB_IMG_URL === 'function') return window.__SB_IMG_URL(kind, name) || '';
   return '/img/' + kind + '/' + encodeURIComponent(name) + '?t=' + Date.now();
+}
+function audioUrl(name) {
+  if (!name) return '';
+  if (typeof window.__SB_AUDIO_URL === 'function') return window.__SB_AUDIO_URL(name) || '';
+  return '/img/voice/' + encodeURIComponent(name) + '?t=' + Date.now();
 }
 function basenameIfLocal(asset) {
   if (!asset || asset.startsWith('http')) return '';

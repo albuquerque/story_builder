@@ -22,6 +22,7 @@ const images = require('./lib/images');
 const { validate } = require('./lib/validate');
 const { generate } = require('./lib/generator');
 const { streamZip } = require('./lib/zip');
+const { validateBoundary } = require('./validate-pack');
 const { PATHS, DIFFICULTY_PRESETS, RARITIES, SHARD_CATEGORIES, BOOSTER_TYPES } = require('./lib/config');
 
 const app = express();
@@ -33,7 +34,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 // Serve stored images for preview.
 app.get('/img/:kind/:name', (req, res) => {
   const { kind, name } = req.params;
-  if (!['story', 'shard'].includes(kind)) return res.status(400).end();
+  if (!['story', 'shard', 'voice'].includes(kind)) return res.status(400).end();
   const p = images.imagePath(kind, path.basename(name));
   if (!images.exists(kind, path.basename(name))) return res.status(404).end();
   res.sendFile(p);
@@ -89,7 +90,7 @@ app.post('/api/reseed', (req, res) => {
 
 // Upload an image. field: file; query: kind=story|shard
 app.post('/api/upload', upload.single('file'), (req, res) => {
-  const kind = req.query.kind === 'shard' ? 'shard' : 'story';
+  const kind = ['shard', 'voice'].includes(req.query.kind) ? req.query.kind : 'story';
   if (!req.file) return res.status(400).json({ error: 'no file' });
   try {
     const name = images.saveImage(kind, req.file.originalname, req.file.buffer);
@@ -111,12 +112,21 @@ app.post('/api/save', async (req, res) => {
   if (!result.ok) return res.status(400).json({ error: 'validation failed', ...result });
   try {
     const summary = generate(model, PATHS.data, { poSourceRoot: PATHS.data });
+    // Guardrail: ensure the save didn't violate the content/app boundary
+    // (e.g. leak narrative into UI translations or remove app-level assets).
+    const boundary = validateBoundary(PATHS.data);
+    if (!boundary.ok) {
+      return res.status(500).json({
+        error: 'content-pack boundary violation after save',
+        boundary_errors: boundary.errors,
+      });
+    }
     // Try to import new images into Godot automatically so they show up in-game
     // without a manual reimport. Best-effort: succeeds only if `godot` is found.
     const imported = await tryGodotImport();
     res.json({
       ok: true, ...summary, warnings: result.warnings, dataPath: PATHS.data,
-      imported,
+      boundary_warnings: boundary.warnings, imported,
     });
   } catch (e) {
     res.status(500).json({ error: String(e.message || e) });
