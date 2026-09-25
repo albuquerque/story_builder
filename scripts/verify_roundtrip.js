@@ -108,21 +108,28 @@ function main() {
   const cardSig = (col) => (col.items || []).map((it) => `${it.id}:${it.unlock_condition}:${it.rarity}`).join('|');
   check('collection cards preserved', cardSig(oc) === cardSig(gc));
 
-  // 6. Translations: every narrative EN msgid preserved with same text.
+  // 6. Translations.
+  //    Narrative lives in the content pack; UI strings stay in translations/core
+  //    and must NOT be touched by the generator.
   const { readPo } = require('../lib/po');
-  const oEn = readPo(path.join(PATHS.translationsCore, 'strings_en.po'));
-  const gEn = readPo(path.join(stagingData, 'translations', 'core', 'strings_en.po'));
+  const { PACK_ID } = require('../lib/config');
+  const narrRel = path.join('content_packs', PACK_ID, 'translations', 'narrative_en.po');
+  const oNarr = readPo(path.join(PATHS.data, narrRel));
+  const gNarr = readPo(path.join(stagingData, narrRel));
   let trOk = true, trDetail = '';
-  for (const [k, v] of Object.entries(oEn)) {
+  // Every narrative EN key is preserved with the same text through the pack.
+  for (const [k, v] of Object.entries(oNarr)) {
     if (k.startsWith('NARRATIVE_ISABELLA_')) {
-      if (gEn[k] !== v) { trOk = false; trDetail = `${k}`; break; }
+      if (gNarr[k] !== v) { trOk = false; trDetail = `${k}`; break; }
     }
   }
-  // Also: existing UI keys must be preserved.
-  for (const [k, v] of Object.entries(oEn)) {
-    if (k.startsWith('UI_') && gEn[k] !== v) { trOk = false; trDetail = `${k} (UI)`; break; }
-  }
-  check('translation keys preserved (narrative + UI)', trOk, trDetail);
+  check('narrative translations round-trip (content pack)', trOk, trDetail);
+
+  // The generator must NOT write UI translations at all (translations/core is
+  // app-level and stays out of packs).
+  const wroteCore = fs.existsSync(path.join(stagingData, 'translations', 'core', 'strings_en.po'));
+  check('generator leaves UI translations untouched (no translations/core)', !wroteCore,
+    wroteCore ? 'pack wrote translations/core/strings_en.po' : '');
 
   // 7. Gallery items preserved.
   if (fs.existsSync(PATHS.galleryItems)) {

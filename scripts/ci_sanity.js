@@ -120,7 +120,14 @@ function main() {
   ok('narrative isabella_01 written', vfs.has('/data/narrative_stages/isabella_01.json'));
   ok('collection written', vfs.has('/data/collections/isabella_journey_cards.json'));
   ok('gallery items written', vfs.has('/data/gallery_items.json'));
-  ok('EN translations written', vfs.has('/data/translations/core/strings_en.po'));
+  ok('EN narrative translations written (content pack)', vfs.has('/data/content_packs/isabella/translations/narrative_en.po'));
+  ok('pack manifest written', vfs.has('/data/content_packs/isabella/pack.json'));
+
+  // 7b. Content-pack boundary: the generator must NOT touch app-level files.
+  ok('does NOT write UI translations (translations/core)', !vfs.has('/data/translations/core/strings_en.po'));
+  ok('does NOT write theme_container_mappings.json', !vfs.has('/data/theme_container_mappings.json'));
+  ok('does NOT write container_selection_rules.json', !vfs.has('/data/container_selection_rules.json'));
+  ok('does NOT write reward_containers', !vfs.has('/data/reward_containers/simple_box.json'));
 
   // 8. Flow structure: chapter metadata + a per-chapter completion reward node.
   const flow = JSON.parse(vfs.get('/data/experience_flows/main_story.json'));
